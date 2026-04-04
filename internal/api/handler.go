@@ -17,6 +17,7 @@ import (
 
 const datasourcesFile = "datasources.json"
 const checksFile = "checks.json"
+const resultsFile = "last_results.json"
 
 type Handler struct {
 	engine    *reconciler.Engine
@@ -117,6 +118,7 @@ func (h *Handler) Routes() chi.Router {
 	r.Post("/checks", h.addCheck)
 	r.Post("/checks/{id}/run", h.runCheck)
 	r.Post("/checks/run-all", h.runAllChecks)
+	r.Get("/checks/last-results", h.lastResults)
 	r.Delete("/checks/{id}", h.removeCheck)
 
 	// SSE events stream
@@ -339,6 +341,7 @@ func (h *Handler) runCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.broadcast(result)
+	h.saveResult(result)
 	writeJSON(w, result)
 }
 
@@ -359,7 +362,54 @@ func (h *Handler) runAllChecks(w http.ResponseWriter, r *http.Request) {
 		results = append(results, result)
 		h.broadcast(result)
 	}
+	h.saveAllResults(results)
 	writeJSON(w, results)
+}
+
+func (h *Handler) lastResults(w http.ResponseWriter, r *http.Request) {
+	data, err := os.ReadFile(resultsFile)
+	if err != nil {
+		writeJSON(w, []interface{}{})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+}
+
+func (h *Handler) saveResult(result *models.CheckResult) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Load existing results
+	var results []*models.CheckResult
+	if data, err := os.ReadFile(resultsFile); err == nil {
+		json.Unmarshal(data, &results)
+	}
+
+	// Upsert
+	found := false
+	for i, r := range results {
+		if r.CheckID == result.CheckID {
+			results[i] = result
+			found = true
+			break
+		}
+	}
+	if !found {
+		results = append(results, result)
+	}
+
+	if data, err := json.MarshalIndent(results, "", "  "); err == nil {
+		os.WriteFile(resultsFile, data, 0644)
+	}
+}
+
+func (h *Handler) saveAllResults(results []*models.CheckResult) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if data, err := json.MarshalIndent(results, "", "  "); err == nil {
+		os.WriteFile(resultsFile, data, 0644)
+	}
 }
 
 func (h *Handler) supportedTypes(w http.ResponseWriter, r *http.Request) {

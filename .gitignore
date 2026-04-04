@@ -7,3 +7,4 @@ web/node_modules/
 *.log
 datasources.json
 checks.json
+last_results.json

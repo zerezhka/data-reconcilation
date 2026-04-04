@@ -71,5 +71,8 @@ export const runAllChecks = () =>
     method: 'POST',
   });
 
+export const lastResults = () =>
+  request<CheckResult[]>('/checks/last-results');
+
 export const supportedTypes = () =>
   request<string[]>('/supported-types');
