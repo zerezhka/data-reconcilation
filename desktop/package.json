@@ -48,7 +48,7 @@
       "target": ["nsis"]
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": ["AppImage", "tar.gz"],
       "category": "Development"
     }
   }
