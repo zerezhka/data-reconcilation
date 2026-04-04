@@ -1,5 +1,8 @@
-.PHONY: up down build run dev clean frontend embed desktop desktop-dist
+.PHONY: up down build run dev clean frontend desktop desktop-dist
 
+BACKEND_VERSION  = $(shell grep '^backend=' VERSION | cut -d= -f2)
+FRONTEND_VERSION = $(shell grep '^frontend=' VERSION | cut -d= -f2)
+DESKTOP_VERSION  = $(shell grep '^desktop=' VERSION | cut -d= -f2)
 GOOS   ?= $(shell go env GOOS)
 GOARCH ?= $(shell go env GOARCH)
 
@@ -16,27 +19,13 @@ reset: down
 	docker volume rm data-reconcilation_pg_data data-reconcilation_ch_data 2>/dev/null || true
 	$(MAKE) up
 
-# Frontend
-frontend:
-	cd web && npm ci && npm run build
+# Backend
+build:
+	go build -ldflags "-X main.version=$(BACKEND_VERSION)" -o bin/reconciler ./cmd/server
 
-# Copy frontend into Go embed directory
-embed: frontend
-	rm -rf cmd/server/static/*
-	cp -r web/dist/* cmd/server/static/
-
-# Go backend (with embedded frontend)
-build: embed
-	go build -o bin/reconciler ./cmd/server
-
-# Go backend (dev, no embed — uses ./web/dist at runtime)
-build-dev:
-	go build -o bin/reconciler ./cmd/server
-
-run: build-dev
+run: build
 	./bin/reconciler -port 8080
 
-# Development (with hot reload if air is installed)
 dev:
 	@if command -v air > /dev/null; then \
 		air; \
@@ -45,20 +34,27 @@ dev:
 		$(MAKE) run; \
 	fi
 
-# Build Go binary for specific platform (used by CI)
-build-platform: embed
-	mkdir -p bin/$(GOOS)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 go build -o bin/$(GOOS)/reconciler ./cmd/server
+# Frontend
+frontend:
+	cd web && npm ci && npm run build
 
-# Desktop (Electron)
-desktop: build
+# Desktop (dev)
+desktop: build frontend
 	cd desktop && npm ci && npm start
 
-desktop-dist: build-platform
-	cd desktop && npm version $$(cat ../VERSION) --no-git-tag-version --allow-same-version
+# Desktop (dist)
+desktop-dist: frontend
+	mkdir -p bin/$(GOOS)
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags "-s -w -X main.version=$(BACKEND_VERSION)" -o bin/$(GOOS)/reconciler ./cmd/server
+	cd desktop && npm version $(DESKTOP_VERSION) --no-git-tag-version --allow-same-version
 	cd desktop && npm ci && npx electron-builder
 
+# Version info
+version:
+	@echo "Backend:  $(BACKEND_VERSION)"
+	@echo "Frontend: $(FRONTEND_VERSION)"
+	@echo "Desktop:  $(DESKTOP_VERSION)"
+
 clean:
-	rm -rf bin/ cmd/server/static/*
-	touch cmd/server/static/.gitkeep
+	rm -rf bin/
 	docker-compose down -v

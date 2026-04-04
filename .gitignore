@@ -8,7 +8,5 @@ web/node_modules/
 datasources.json
 checks.json
 last_results.json
-cmd/server/static/*
-!cmd/server/static/.gitkeep
 desktop/node_modules/
 desktop/release/

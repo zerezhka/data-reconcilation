@@ -1,6 +1,6 @@
 {
   "name": "data-reconciler",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Data Reconciliation Tool — compare databases, find discrepancies",
   "main": "main.js",
   "scripts": {
@@ -27,6 +27,11 @@
       {
         "from": "../bin/${os}/",
         "to": "backend",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../web/dist/",
+        "to": "frontend",
         "filter": ["**/*"]
       }
     ],

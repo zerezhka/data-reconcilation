@@ -2,35 +2,38 @@ const { spawn } = require('child_process');
 const net = require('net');
 const path = require('path');
 const fs = require('fs');
+const { app } = require('electron');
 
 let backendProcess = null;
 
 function getBinaryName() {
-  const base = process.platform === 'win32' ? 'reconciler.exe' : 'reconciler';
-  return base;
+  return process.platform === 'win32' ? 'reconciler.exe' : 'reconciler';
 }
 
 function getBinaryPath() {
-  // In packaged app: resources/backend/reconciler
-  const packaged = path.join(process.resourcesPath, 'backend', getBinaryName());
+  const name = getBinaryName();
+
+  // Packaged: resources/backend/reconciler
+  const packaged = path.join(process.resourcesPath, 'backend', name);
   if (fs.existsSync(packaged)) return packaged;
 
-  // In dev: ../bin/<os>/reconciler
-  const osName = { darwin: 'darwin', linux: 'linux', win32: 'windows' }[process.platform];
-  const dev = path.join(__dirname, '..', 'bin', osName, getBinaryName());
+  // Dev: ../bin/reconciler
+  const dev = path.join(__dirname, '..', 'bin', name);
   if (fs.existsSync(dev)) return dev;
 
-  // Fallback: ../bin/reconciler
-  const fallback = path.join(__dirname, '..', 'bin', getBinaryName());
-  if (fs.existsSync(fallback)) return fallback;
-
-  throw new Error(`Backend binary not found. Looked at:\n  ${packaged}\n  ${dev}\n  ${fallback}`);
+  throw new Error(`Backend binary not found. Checked:\n  ${packaged}\n  ${dev}`);
 }
 
-function getWorkingDir() {
-  // Use app's userData dir for config files (datasources.json, checks.json, etc.)
-  const { app } = require('electron');
-  return app.getPath('userData');
+function getFrontendPath() {
+  // Packaged: resources/frontend/
+  const packaged = path.join(process.resourcesPath, 'frontend');
+  if (fs.existsSync(path.join(packaged, 'index.html'))) return packaged;
+
+  // Dev: ../web/dist/
+  const dev = path.join(__dirname, '..', 'web', 'dist');
+  if (fs.existsSync(path.join(dev, 'index.html'))) return dev;
+
+  return null; // Backend-only mode, no frontend served
 }
 
 function getFreePort() {
@@ -55,9 +58,7 @@ function waitForPort(port, timeout = 10000) {
         sock.destroy();
         resolve();
       });
-      sock.on('error', () => {
-        setTimeout(tryConnect, 100);
-      });
+      sock.on('error', () => setTimeout(tryConnect, 100));
     }
     tryConnect();
   });
@@ -66,18 +67,21 @@ function waitForPort(port, timeout = 10000) {
 async function startBackend() {
   const port = await getFreePort();
   const binPath = getBinaryPath();
-  const cwd = getWorkingDir();
+  const cwd = app.getPath('userData');
+  const frontendPath = getFrontendPath();
 
-  console.log(`Starting backend: ${binPath} -port ${port} (cwd: ${cwd})`);
+  const args = ['-port', String(port)];
+  if (frontendPath) args.push('-static', frontendPath);
 
-  backendProcess = spawn(binPath, ['-port', String(port)], {
+  console.log(`Starting backend: ${binPath} ${args.join(' ')}`);
+
+  backendProcess = spawn(binPath, args, {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
   backendProcess.stdout.on('data', (d) => process.stdout.write(`[backend] ${d}`));
   backendProcess.stderr.on('data', (d) => process.stderr.write(`[backend] ${d}`));
-
   backendProcess.on('exit', (code) => {
     console.log(`Backend exited with code ${code}`);
     backendProcess = null;

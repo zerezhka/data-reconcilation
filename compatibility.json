@@ -1,0 +1,11 @@
+{
+  "frontend": {
+    "version": "0.4.0",
+    "min_backend": "0.3.0"
+  },
+  "desktop": {
+    "version": "0.4.0",
+    "min_backend": "0.3.0",
+    "min_frontend": "0.3.0"
+  }
+}

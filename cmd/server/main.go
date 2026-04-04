@@ -1,10 +1,8 @@
 package main
 
 import (
-	"embed"
 	"flag"
 	"fmt"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -20,12 +18,18 @@ import (
 	_ "github.com/sergey/data-reconciler/internal/datasource"
 )
 
-//go:embed static
-var embeddedStatic embed.FS
+var version = "dev"
 
 func main() {
 	port := flag.Int("port", 8080, "HTTP server port")
+	staticDir := flag.String("static", "", "Path to frontend static files (optional)")
+	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		os.Exit(0)
+	}
 
 	engine := reconciler.New()
 	handler := api.NewHandler(engine)
@@ -45,66 +49,41 @@ func main() {
 	// API routes
 	r.Mount("/api", handler.Routes())
 
-	// Serve frontend: prefer external web/dist (dev), fallback to embedded
-	staticDir := "./web/dist"
-	if _, err := os.Stat(staticDir); err == nil {
-		fileServer := http.FileServer(http.Dir(staticDir))
-		r.Get("/*", spaHandler(staticDir, fileServer))
-		log.Println("📁 Serving frontend from ./web/dist")
-	} else {
-		subFS, err := fs.Sub(embeddedStatic, "static")
-		if err != nil {
-			log.Fatal(err)
+	// Version endpoint
+	r.Get("/api/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"version":"%s"}`, version)
+	})
+
+	// Optionally serve frontend static files
+	dir := *staticDir
+	if dir == "" {
+		// Auto-detect common paths
+		for _, candidate := range []string{"./web/dist", "./frontend", "./static"} {
+			if _, err := os.Stat(candidate); err == nil {
+				dir = candidate
+				break
+			}
 		}
-		fileServer := http.FileServer(http.FS(subFS))
-		r.Get("/*", spaHandlerFS(subFS, fileServer))
-		log.Println("📦 Serving embedded frontend")
+	}
+
+	if dir != "" {
+		fileServer := http.FileServer(http.Dir(dir))
+		r.Get("/*", func(w http.ResponseWriter, r *http.Request) {
+			if _, err := os.Stat(dir + r.URL.Path); os.IsNotExist(err) {
+				http.ServeFile(w, r, dir+"/index.html")
+				return
+			}
+			fileServer.ServeHTTP(w, r)
+		})
+		log.Printf("📁 Serving frontend from %s", dir)
 	}
 
 	addr := fmt.Sprintf(":%d", *port)
-	log.Printf("🚀 Data Reconciler starting on http://localhost%s", addr)
+	log.Printf("🚀 Data Reconciler %s starting on http://localhost%s", version, addr)
 	log.Printf("📊 API available at http://localhost%s/api", addr)
 
 	if err := http.ListenAndServe(addr, r); err != nil {
 		log.Fatal(err)
 	}
-}
-
-// spaHandler serves files from disk with SPA fallback
-func spaHandler(dir string, fileServer http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if _, err := os.Stat(dir + r.URL.Path); os.IsNotExist(err) {
-			http.ServeFile(w, r, dir+"/index.html")
-			return
-		}
-		fileServer.ServeHTTP(w, r)
-	}
-}
-
-// spaHandlerFS serves files from embed.FS with SPA fallback
-func spaHandlerFS(fsys fs.FS, fileServer http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		path := r.URL.Path
-		if path[0] == '/' {
-			path = path[1:]
-		}
-		if _, err := fs.Stat(fsys, path); os.IsNotExist(err) {
-			// SPA fallback — serve index.html
-			f, err := fsys.Open("index.html")
-			if err != nil {
-				http.NotFound(w, r)
-				return
-			}
-			defer f.Close()
-			stat, _ := f.Stat()
-			http.ServeContent(w, r, "index.html", stat.ModTime(), f.(readSeeker))
-			return
-		}
-		fileServer.ServeHTTP(w, r)
-	}
-}
-
-type readSeeker interface {
-	Read(p []byte) (n int, err error)
-	Seek(offset int64, whence int) (int64, error)
 }
