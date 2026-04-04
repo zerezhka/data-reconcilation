@@ -1,0 +1,7 @@
+.DS_Store
+bin/
+*.exe
+web/dist/
+web/node_modules/
+.env
+*.log

@@ -1,0 +1,35 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: reconciler-pg
+    environment:
+      POSTGRES_DB: source_of_truth
+      POSTGRES_USER: recon
+      POSTGRES_PASSWORD: recon123
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./docker/postgres/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+      - pg_data:/var/lib/postgresql/data
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: reconciler-ch
+    environment:
+      CLICKHOUSE_DB: analytics
+      CLICKHOUSE_USER: recon
+      CLICKHOUSE_PASSWORD: recon123
+    ports:
+      - "8123:8123"   # HTTP
+      - "9000:9000"   # Native
+    volumes:
+      - ./docker/clickhouse/init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./docker/clickhouse/seed_with_bugs.sql:/docker-entrypoint-initdb.d/02-seed.sql
+      - ch_data:/var/lib/clickhouse
+
+volumes:
+  pg_data:
+  ch_data:

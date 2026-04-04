@@ -1,0 +1,404 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  LayoutDashboard, 
+  Database, 
+  CheckSquare, 
+  Play, 
+  AlertCircle, 
+  CheckCircle2, 
+  Search, 
+  Settings, 
+  ChevronRight,
+  Filter,
+  ArrowUpDown,
+  RefreshCw,
+  Plus,
+  X,
+  Server,
+  Shield,
+  Bell,
+  Cpu,
+  Globe,
+  Save
+} from 'lucide-react';
+
+// --- Types & Constants ---
+const DB_TYPES = [
+  { id: 'postgresql', name: 'PostgreSQL', port: 5432 },
+  { id: 'clickhouse', name: 'ClickHouse', port: 9000 },
+  { id: 'mysql', name: 'MySQL', port: 3306 },
+  { id: 'mssql', name: 'MS SQL Server', port: 1433 },
+  { id: 'sqlite', name: 'SQLite', port: null },
+];
+
+// --- Mock Data ---
+const INITIAL_SOURCES = [
+  { id: 1, name: '1C Production', type: 'PostgreSQL', host: '10.0.1.45', status: 'connected' },
+  { id: 2, name: 'Analytical Storage', type: 'ClickHouse', host: '10.0.5.12', status: 'connected' },
+  { id: 3, name: 'Legacy CRM', type: 'MS SQL', host: '192.168.1.10', status: 'error' },
+];
+
+const MOCK_CHECKS = [
+  { id: 1, name: 'Сверка продаж (1С vs ClickHouse)', status: 'error', sourceA: 'PostgreSQL', sourceB: 'ClickHouse', diff: 3, lastRun: '5 мин. назад' },
+  { id: 2, name: 'Остатки на складах', status: 'warning', sourceA: 'MS SQL', sourceB: 'PostgreSQL', diff: 12, lastRun: '12 мин. назад' },
+  { id: 3, name: 'Справочник категорий', status: 'ok', sourceA: 'PostgreSQL', sourceB: 'PostgreSQL', diff: 0, lastRun: '1 час назад' },
+];
+
+// --- Components ---
+
+const SidebarItem = ({ icon: Icon, label, active, onClick }) => (
+  <button 
+    onClick={onClick}
+    className={`w-full flex items-center gap-3 p-3 rounded-lg transition-all ${
+      active ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' : 'text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100'
+    }`}
+  >
+    <Icon size={20} />
+    <span className="font-medium text-sm">{label}</span>
+  </button>
+);
+
+const StatusBadge = ({ status }) => {
+  const styles = {
+    ok: 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20',
+    warning: 'bg-amber-500/10 text-amber-500 border-amber-500/20',
+    error: 'bg-red-500/10 text-red-500 border-red-500/20',
+  };
+  const labels = { ok: 'ONLINE', warning: 'WARN', error: 'ERROR' };
+  
+  return (
+    <span className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase ${styles[status]}`}>
+      {labels[status]}
+    </span>
+  );
+};
+
+// --- Main App ---
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [sources, setSources] = useState(INITIAL_SOURCES);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
+  
+  // Form State
+  const [newSource, setNewSource] = useState({
+    name: '',
+    type: 'postgresql',
+    host: '',
+    port: '5432',
+    database: '',
+    username: '',
+    password: ''
+  });
+
+  const handleAddSource = (e) => {
+    e.preventDefault();
+    const sourceToAdd = {
+      id: Date.now(),
+      name: newSource.name || 'New Source',
+      type: DB_TYPES.find(t => t.id === newSource.type)?.name || 'DB',
+      host: newSource.type === 'sqlite' ? 'local_file' : newSource.host,
+      status: 'connected'
+    };
+    setSources([...sources, sourceToAdd]);
+    setIsModalOpen(false);
+    setNewSource({ name: '', type: 'postgresql', host: '', port: '5432', database: '', username: '', password: '' });
+  };
+
+  return (
+    <div className="flex h-screen bg-[#09090b] text-zinc-100 font-sans overflow-hidden">
+      {/* Sidebar */}
+      <aside className="w-64 bg-zinc-950 border-r border-zinc-800 flex flex-col p-4 shrink-0">
+        <div className="flex items-center gap-3 px-2 mb-10 mt-2">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+            <RefreshCw size={18} className="text-white" />
+          </div>
+          <h1 className="font-bold tracking-tight text-lg italic">RECONCILER</h1>
+        </div>
+
+        <nav className="flex-1 space-y-1">
+          <SidebarItem 
+            icon={LayoutDashboard} 
+            label="Дашборд" 
+            active={activeTab === 'dashboard'} 
+            onClick={() => setActiveTab('dashboard')} 
+          />
+          <SidebarItem 
+            icon={Database} 
+            label="Источники данных" 
+            active={activeTab === 'datasources'} 
+            onClick={() => setActiveTab('datasources')} 
+          />
+          <SidebarItem 
+            icon={CheckSquare} 
+            label="Проверки" 
+            active={activeTab === 'checks'} 
+            onClick={() => setActiveTab('checks')} 
+          />
+        </nav>
+
+        <div className="mt-auto pt-4 border-t border-zinc-800">
+          <SidebarItem 
+            icon={Settings} 
+            label="Настройки" 
+            active={activeTab === 'settings'} 
+            onClick={() => setActiveTab('settings')}
+          />
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 overflow-y-auto relative">
+        <div className="p-8 max-w-6xl mx-auto">
+          
+          {/* Header */}
+          <header className="flex justify-between items-end mb-8">
+            <div>
+              <h2 className="text-3xl font-bold tracking-tight">
+                {activeTab === 'dashboard' && 'Обзор системы'}
+                {activeTab === 'datasources' && 'Источники данных'}
+                {activeTab === 'checks' && 'Все проверки'}
+                {activeTab === 'settings' && 'Настройки системы'}
+              </h2>
+              <p className="text-zinc-500 mt-1">
+                {activeTab === 'settings' ? 'Конфигурация параметров работы и безопасности' : 'Мониторинг расхождений данных в реальном времени'}
+              </p>
+            </div>
+            {activeTab === 'dashboard' && (
+              <button 
+                onClick={() => { setIsRunning(true); setTimeout(() => setIsRunning(false), 2000); }}
+                disabled={isRunning}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold bg-white text-black hover:bg-zinc-200 transition-all disabled:opacity-50"
+              >
+                {isRunning ? <RefreshCw size={18} className="animate-spin" /> : <Play size={18} fill="currentColor" />}
+                {isRunning ? 'Запуск...' : 'Запустить всё'}
+              </button>
+            )}
+          </header>
+
+          {/* DASHBOARD TAB */}
+          {activeTab === 'dashboard' && (
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                {[
+                  { label: 'Всего строк (A)', val: '2.84M' },
+                  { label: 'Всего строк (B)', val: '2.84M' },
+                  { label: 'Расхождения', val: '12', color: 'red' },
+                  { label: 'Точность', val: '99.99%', color: 'emerald' },
+                ].map((s, i) => (
+                  <div key={i} className="bg-zinc-900 border border-zinc-800 p-5 rounded-xl">
+                    <p className="text-zinc-500 text-[10px] uppercase font-black tracking-widest mb-1">{s.label}</p>
+                    <p className={`text-2xl font-mono font-bold ${s.color === 'red' ? 'text-red-500' : s.color === 'emerald' ? 'text-emerald-500' : ''}`}>
+                      {s.val}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+                <div className="p-4 border-b border-zinc-800 flex justify-between items-center">
+                  <h3 className="font-bold">Последние инциденты</h3>
+                  <button className="text-xs text-blue-400 hover:underline">Все события</button>
+                </div>
+                <div className="divide-y divide-zinc-800">
+                  {MOCK_CHECKS.map(check => (
+                    <div key={check.id} className="p-4 flex items-center justify-between hover:bg-zinc-800/30 transition-colors">
+                      <div className="flex items-center gap-3">
+                         <div className={`w-2 h-2 rounded-full ${check.status === 'ok' ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                         <span className="font-medium">{check.name}</span>
+                      </div>
+                      <span className="text-zinc-500 text-sm font-mono">{check.lastRun}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* DATASOURCES TAB */}
+          {activeTab === 'datasources' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in duration-500">
+              {sources.map((ds) => (
+                <div key={ds.id} className="bg-zinc-900 border border-zinc-800 p-6 rounded-xl relative group">
+                  <div className={`absolute top-0 right-0 w-1 h-full ${ds.status === 'connected' ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                  <div className="flex justify-between items-start mb-6">
+                    <div className="p-3 bg-zinc-950 rounded-lg border border-zinc-800 text-blue-500">
+                       <Database size={24} />
+                    </div>
+                    <StatusBadge status={ds.status === 'connected' ? 'ok' : 'error'} />
+                  </div>
+                  <h4 className="text-lg font-bold">{ds.name}</h4>
+                  <p className="text-zinc-500 text-xs font-mono mb-6">{ds.type} • {ds.host}</p>
+                  <div className="flex gap-2">
+                    <button className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-xs py-2 rounded-md font-bold transition-colors">Test</button>
+                    <button className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-xs py-2 rounded-md font-bold transition-colors">Config</button>
+                  </div>
+                </div>
+              ))}
+              <button 
+                onClick={() => setIsModalOpen(true)}
+                className="border-2 border-dashed border-zinc-800 rounded-xl p-8 flex flex-col items-center justify-center text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 transition-all group"
+              >
+                <div className="w-12 h-12 rounded-full bg-zinc-900 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                  <Plus size={24} />
+                </div>
+                <span className="font-bold">Добавить источник</span>
+              </button>
+            </div>
+          )}
+
+          {/* SETTINGS TAB */}
+          {activeTab === 'settings' && (
+            <div className="max-w-3xl space-y-6 animate-in fade-in duration-500">
+              {[
+                { title: 'Уведомления', icon: Bell, desc: 'Настройка Telegram/Email алертов при критических расхождениях', action: 'Настроить' },
+                { title: 'Безопасность', icon: Shield, desc: 'Управление API-ключами и правами доступа (RBAC)', action: 'Управление' },
+                { title: 'Производительность', icon: Cpu, desc: 'Лимиты потребления RAM и количество параллельных потоков сверки', action: 'Лимиты' },
+                { title: 'Глобальные прокси', icon: Globe, desc: 'Настройка сетевых шлюзов для доступа к внешним БД', action: 'Прокси' },
+              ].map((item, i) => (
+                <div key={i} className="bg-zinc-900 border border-zinc-800 p-6 rounded-xl flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="p-3 bg-zinc-950 rounded-lg border border-zinc-800 text-zinc-400">
+                      <item.icon size={20} />
+                    </div>
+                    <div>
+                      <h4 className="font-bold">{item.title}</h4>
+                      <p className="text-sm text-zinc-500">{item.desc}</p>
+                    </div>
+                  </div>
+                  <button className="text-xs font-bold px-4 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg transition-colors">
+                    {item.action}
+                  </button>
+                </div>
+              ))}
+              
+              <div className="pt-6 border-t border-zinc-800 flex justify-end">
+                 <button className="flex items-center gap-2 px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold transition-colors">
+                   <Save size={18} /> Сохранить изменения
+                 </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* MODAL: ADD DATASOURCE */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setIsModalOpen(false)} />
+          <form 
+            onSubmit={handleAddSource}
+            className="relative bg-zinc-900 border border-zinc-800 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"
+          >
+            <div className="p-6 border-b border-zinc-800 flex justify-between items-center">
+              <h3 className="text-xl font-bold flex items-center gap-2">
+                <Plus size={20} className="text-blue-500" />
+                Новое подключение
+              </h3>
+              <button type="button" onClick={() => setIsModalOpen(false)} className="text-zinc-500 hover:text-white">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-1 block">Название источника</label>
+                  <input 
+                    required
+                    type="text" 
+                    placeholder="e.g. Warehouse Production"
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500 transition-colors"
+                    value={newSource.name}
+                    onChange={e => setNewSource({...newSource, name: e.target.value})}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-1 block">Тип СУБД</label>
+                  <select 
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 transition-colors appearance-none"
+                    value={newSource.type}
+                    onChange={e => {
+                      const type = DB_TYPES.find(t => t.id === e.target.value);
+                      setNewSource({...newSource, type: e.target.value, port: type.port || ''});
+                    }}
+                  >
+                    {DB_TYPES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                </div>
+
+                {newSource.type !== 'sqlite' && (
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-1 block">Порт</label>
+                    <input 
+                      type="text" 
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500 font-mono"
+                      value={newSource.port}
+                      onChange={e => setNewSource({...newSource, port: e.target.value})}
+                    />
+                  </div>
+                )}
+              </div>
+
+              {newSource.type !== 'sqlite' ? (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-1 block">Хост / IP адрес</label>
+                    <input 
+                      required
+                      type="text" 
+                      placeholder="127.0.0.1"
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500 font-mono"
+                      value={newSource.host}
+                      onChange={e => setNewSource({...newSource, host: e.target.value})}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-1 block">Логин</label>
+                      <input type="text" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-1 block">Пароль</label>
+                      <input type="password" placeholder="••••••••" className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500" />
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                   <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-1 block">Путь к файлу базы данных</label>
+                   <input 
+                    required
+                    type="text" 
+                    placeholder="/var/lib/data/db.sqlite"
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-4 py-2.5 focus:outline-none focus:border-blue-500 font-mono text-xs"
+                    value={newSource.host}
+                    onChange={e => setNewSource({...newSource, host: e.target.value})}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 bg-zinc-950/50 flex gap-3">
+              <button 
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl font-bold transition-colors"
+              >
+                Отмена
+              </button>
+              <button 
+                type="submit"
+                className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold shadow-lg shadow-blue-900/20 transition-all"
+              >
+                Подключить
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
