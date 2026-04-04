@@ -1,5 +1,7 @@
-import { useState } from 'react';
-import { Play, RefreshCw } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { Play, RefreshCw, ChevronRight } from 'lucide-react';
+import { useSSE } from '../api/useEvents';
+import { CheckResultDetail } from './CheckResultDetail';
 import * as api from '../api/client';
 import type { CheckResult } from '../types';
 
@@ -7,19 +9,41 @@ export function Dashboard() {
   const [isRunning, setIsRunning] = useState(false);
   const [results, setResults] = useState<CheckResult[]>([]);
   const [error, setError] = useState('');
+  const [selected, setSelected] = useState<CheckResult | null>(null);
+
+  // Live updates via SSE
+  useSSE(useCallback((_event: string, data: unknown) => {
+    const result = data as CheckResult;
+    if (result?.check_id) {
+      setResults(prev => {
+        const idx = prev.findIndex(r => r.check_id === result.check_id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = result;
+          return next;
+        }
+        return [...prev, result];
+      });
+      // Update selected if viewing this check
+      setSelected(prev => prev?.check_id === result.check_id ? result : prev);
+    }
+  }, []));
 
   const handleRunAll = async () => {
     setIsRunning(true);
     setError('');
     try {
-      const res = await api.runAllChecks();
-      setResults(res);
+      await api.runAllChecks();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to run checks');
     } finally {
       setIsRunning(false);
     }
   };
+
+  if (selected) {
+    return <CheckResultDetail result={selected} onBack={() => setSelected(null)} />;
+  }
 
   const totalA = results.reduce((s, r) => s + (r.summary?.source_a_rows ?? 0), 0);
   const totalB = results.reduce((s, r) => s + (r.summary?.source_b_rows ?? 0), 0);
@@ -71,20 +95,33 @@ export function Dashboard() {
               <h3 className="font-bold">Результаты проверок</h3>
             </div>
             <div className="divide-y divide-zinc-800">
-              {results.map((r, i) => (
-                <div key={i} className="p-4 flex items-center justify-between hover:bg-zinc-800/30 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-2 h-2 rounded-full ${r.status === 'ok' ? 'bg-emerald-500' : r.status === 'warning' ? 'bg-amber-500' : 'bg-red-500'}`} />
-                    <span className="font-medium">{r.check_name || r.check_id}</span>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-zinc-500 text-sm font-mono">{r.duration}</span>
-                    <span className={`text-xs font-bold ${r.status === 'ok' ? 'text-emerald-500' : 'text-red-500'}`}>
-                      {r.status.toUpperCase()}
-                    </span>
-                  </div>
-                </div>
-              ))}
+              {results.map((r, i) => {
+                const issues = (r.summary?.mismatched_rows ?? 0) + (r.summary?.missing_in_a ?? 0) + (r.summary?.missing_in_b ?? 0) + (r.summary?.duplicates_in_a ?? 0) + (r.summary?.duplicates_in_b ?? 0);
+                return (
+                  <button
+                    key={i}
+                    onClick={() => setSelected(r)}
+                    className="w-full p-4 flex items-center justify-between hover:bg-zinc-800/30 transition-colors cursor-pointer text-left"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-2 h-2 rounded-full ${r.status === 'ok' ? 'bg-emerald-500' : r.status === 'warning' ? 'bg-amber-500' : 'bg-red-500'}`} />
+                      <span className="font-medium">{r.check_name || r.check_id}</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      {issues > 0 && (
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-500/10 text-red-500 border border-red-500/20">
+                          {issues} {issues === 1 ? 'issue' : 'issues'}
+                        </span>
+                      )}
+                      <span className="text-zinc-500 text-sm font-mono">{r.duration}</span>
+                      <span className={`text-xs font-bold ${r.status === 'ok' ? 'text-emerald-500' : 'text-red-500'}`}>
+                        {r.status.toUpperCase()}
+                      </span>
+                      <ChevronRight size={16} className="text-zinc-600" />
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}

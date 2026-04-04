@@ -133,8 +133,8 @@ func (e *Engine) runAggregateCheck(ctx context.Context, srcA, srcB datasource.Da
 	if len(resA.Rows) > 0 && len(resB.Rows) > 0 {
 		for i, fieldA := range check.SourceA.Fields {
 			fieldB := check.SourceB.Fields[i]
-			valA := toFloat(resA.Rows[0][i])
-			valB := toFloat(resB.Rows[0][i])
+			valA, _ := asFloat64(resA.Rows[0][i])
+			valB, _ := asFloat64(resB.Rows[0][i])
 			delta := valA - valB
 
 			if math.Abs(delta) > check.Tolerance {
@@ -345,36 +345,38 @@ func parseKey(key string, fields []string) map[string]interface{} {
 	return result
 }
 
-func toFloat(v interface{}) float64 {
+// asFloat64 converts normalized values (int64, float64, string) to float64.
+// Values are already normalized by the datasource layer.
+func asFloat64(v interface{}) (float64, bool) {
 	switch val := v.(type) {
 	case float64:
-		return val
-	case float32:
-		return float64(val)
+		return val, true
 	case int64:
-		return float64(val)
-	case int:
-		return float64(val)
+		return float64(val), true
 	case string:
 		var f float64
-		fmt.Sscanf(val, "%f", &f)
-		return f
+		if _, err := fmt.Sscanf(val, "%f", &f); err == nil {
+			return f, true
+		}
+		return 0, false
 	default:
-		return 0
+		return 0, false
 	}
 }
 
 func valuesEqual(a, b interface{}, tolerance float64) bool {
-	fa, fb := toFloat(a), toFloat(b)
-	if fa != 0 || fb != 0 {
+	fa, aOk := asFloat64(a)
+	fb, bOk := asFloat64(b)
+	if aOk && bOk {
 		return math.Abs(fa-fb) <= tolerance
 	}
 	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 }
 
 func computeDelta(a, b interface{}) interface{} {
-	fa, fb := toFloat(a), toFloat(b)
-	if fa != 0 || fb != 0 {
+	fa, aOk := asFloat64(a)
+	fb, bOk := asFloat64(b)
+	if aOk && bOk {
 		return fa - fb
 	}
 	return nil

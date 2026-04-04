@@ -17,8 +17,11 @@ var clickhouseDialect = SQLDialect{
 			cfg.User, cfg.Password, cfg.Host, cfg.Port, cfg.Database)
 	},
 	QuoteIdent: func(s string) string { return "`" + s + "`" },
-	ListTablesSQL: `SELECT name FROM system.tables 
+	ListTablesSQL: `SELECT name FROM system.tables
 		WHERE database = currentDatabase() AND engine != 'View' ORDER BY name`,
+	PrimaryKeysSQL: `SELECT name FROM system.columns
+		WHERE database = currentDatabase() AND table = '%s' AND is_in_primary_key = 1
+		ORDER BY position`,
 }
 
 func newClickHouse(cfg DSConfig) (DataSource, error) {

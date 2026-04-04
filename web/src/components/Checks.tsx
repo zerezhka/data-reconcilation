@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Play, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Play, Trash2, ChevronDown, ChevronUp, PlayCircle } from 'lucide-react';
 import { StatusBadge } from './StatusBadge';
 import { AddCheckWizard } from './AddCheckWizard';
 import * as api from '../api/client';
+import { useSSE } from '../api/useEvents';
 import type { CheckConfig, CheckResult, DSInfo } from '../types';
 
 export function Checks() {
@@ -27,6 +28,14 @@ export function Checks() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Live updates via SSE
+  useSSE(useCallback((_event: string, data: unknown) => {
+    const result = data as CheckResult;
+    if (result?.check_id) {
+      setResults(prev => ({ ...prev, [result.check_id]: result }));
+    }
+  }, []));
+
   const handleRun = async (id: string) => {
     try {
       const res = await api.runCheck(id);
@@ -50,12 +59,22 @@ export function Checks() {
           <p className="text-zinc-500 mt-1">Настройка и запуск сверок между источниками</p>
         </div>
         {!showAdd && (
-          <button
-            onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-bold bg-blue-600 hover:bg-blue-500 transition-all cursor-pointer"
-          >
-            <Plus size={18} /> Добавить проверку
-          </button>
+          <div className="flex items-center gap-2">
+            {checks.length > 0 && (
+              <button
+                onClick={async () => { api.runAllChecks(); }}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-bold bg-emerald-600 hover:bg-emerald-500 transition-all cursor-pointer"
+              >
+                <PlayCircle size={18} /> Запустить все
+              </button>
+            )}
+            <button
+              onClick={() => setShowAdd(true)}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-lg font-bold bg-blue-600 hover:bg-blue-500 transition-all cursor-pointer"
+            >
+              <Plus size={18} /> Добавить проверку
+            </button>
+          </div>
         )}
       </header>
 

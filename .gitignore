@@ -5,3 +5,5 @@ web/dist/
 web/node_modules/
 .env
 *.log
+datasources.json
+checks.json

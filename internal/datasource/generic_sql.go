@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math/big"
 	"strings"
+	"time"
 )
 
 // =============================================
@@ -13,12 +15,13 @@ import (
 // =============================================
 
 type SQLDialect struct {
-	DriverName     string
-	BuildDSN       func(cfg DSConfig) string
-	QuoteIdent     func(s string) string
-	ListTablesSQL  string
-	TableSchemaSQL string // %s = table name
-	CountSQL       string // %s = table, %s = where
+	DriverName      string
+	BuildDSN        func(cfg DSConfig) string
+	QuoteIdent      func(s string) string
+	ListTablesSQL   string
+	TableSchemaSQL  string // %s = table name
+	CountSQL        string // %s = table, %s = where
+	PrimaryKeysSQL  string // %s = table name; returns column_name rows
 }
 
 type GenericSQL struct {
@@ -90,13 +93,30 @@ func (g *GenericSQL) GetSchema(ctx context.Context, table string) ([]ColumnInfo,
 		return nil, err
 	}
 
+	// Fetch primary keys if dialect supports it
+	pkSet := make(map[string]bool)
+	if g.dialect.PrimaryKeysSQL != "" {
+		pkQuery := fmt.Sprintf(g.dialect.PrimaryKeysSQL, table)
+		pkRows, err := g.db.QueryContext(ctx, pkQuery)
+		if err == nil {
+			defer pkRows.Close()
+			for pkRows.Next() {
+				var colName string
+				if pkRows.Scan(&colName) == nil {
+					pkSet[colName] = true
+				}
+			}
+		}
+	}
+
 	var result []ColumnInfo
 	for _, c := range cols {
 		nullable, _ := c.Nullable()
 		result = append(result, ColumnInfo{
-			Name:     c.Name(),
-			Type:     c.DatabaseTypeName(),
-			Nullable: nullable,
+			Name:       c.Name(),
+			Type:       c.DatabaseTypeName(),
+			Nullable:   nullable,
+			PrimaryKey: pkSet[c.Name()],
 		})
 	}
 	return result, nil
@@ -197,17 +217,83 @@ func (g *GenericSQL) execQuery(ctx context.Context, query string) (*QueryResult,
 			return nil, err
 		}
 
-		// Convert byte slices to strings for JSON serialization
 		row := make([]interface{}, len(columns))
 		for i, v := range values {
-			if b, ok := v.([]byte); ok {
-				row[i] = string(b)
-			} else {
-				row[i] = v
-			}
+			row[i] = normalizeValue(v)
 		}
 		result.Rows = append(result.Rows, row)
 	}
 	result.Total = int64(len(result.Rows))
 	return &result, nil
+}
+
+// normalizeValue converts driver-specific types to canonical Go types:
+//   - integers (any width/sign) → int64
+//   - floats → float64
+//   - decimals/big types → float64
+//   - time → time.Time in UTC
+//   - bytes → string
+//   - nil stays nil
+func normalizeValue(v interface{}) interface{} {
+	if v == nil {
+		return nil
+	}
+	switch val := v.(type) {
+	// Already canonical
+	case int64:
+		return val
+	case float64:
+		return val
+	case string:
+		return val
+	case bool:
+		return val
+	case time.Time:
+		return val.UTC()
+
+	// Integer widths → int64
+	case int:
+		return int64(val)
+	case int8:
+		return int64(val)
+	case int16:
+		return int64(val)
+	case int32:
+		return int64(val)
+	case uint:
+		return int64(val)
+	case uint8:
+		return int64(val)
+	case uint16:
+		return int64(val)
+	case uint32:
+		return int64(val)
+	case uint64:
+		return int64(val)
+
+	// Float widths → float64
+	case float32:
+		return float64(val)
+
+	// Byte slices → string
+	case []byte:
+		return string(val)
+
+	// Decimal types (clickhouse, shopspring, etc.)
+	case *big.Float:
+		f, _ := val.Float64()
+		return f
+	case *big.Int:
+		return val.Int64()
+	case *big.Rat:
+		f, _ := val.Float64()
+		return f
+
+	default:
+		// Stringer fallback
+		if s, ok := v.(fmt.Stringer); ok {
+			return s.String()
+		}
+		return fmt.Sprintf("%v", v)
+	}
 }

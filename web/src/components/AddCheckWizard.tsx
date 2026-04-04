@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { ArrowRight, ArrowLeft, Zap, Link2, Unlink, Key, Check } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { ArrowRight, ArrowLeft, Zap, Link2, Key, Check } from 'lucide-react';
 import * as api from '../api/client';
 import type { DSInfo, TableInfo, ColumnInfo, CheckMode } from '../types';
 
@@ -113,7 +113,6 @@ export function AddCheckWizard({ sources, onAdded, onCancel }: {
     );
   };
 
-  const getMappedB = (fieldA: string) => mappings.find(m => m.fieldA === fieldA)?.fieldB;
   const getMappedA = (fieldB: string) => mappings.find(m => m.fieldB === fieldB)?.fieldA;
   const isMappedA = (f: string) => mappings.some(m => m.fieldA === f);
   const isMappedB = (f: string) => mappings.some(m => m.fieldB === f);
@@ -234,109 +233,23 @@ export function AddCheckWizard({ sources, onAdded, onCancel }: {
             </button>
           </div>
 
-          <div className="grid grid-cols-[1fr_auto_1fr] gap-0 items-start">
-            {/* Column A */}
-            <div>
-              <div className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-2 px-1">
-                {srcA} / {tableA}
-              </div>
-              <div className="space-y-1">
-                {schemaA.map(col => {
-                  const mapped = isMappedA(col.name);
-                  const isPending = pendingA === col.name;
-                  const isKey = keyFields.includes(col.name);
-                  return (
-                    <div key={col.name} className="flex items-center gap-1">
-                      <button
-                        onClick={() => toggleKeyField(col.name)}
-                        title={isKey ? 'Убрать из ключа' : 'Сделать ключом'}
-                        className={`p-1 rounded transition-colors cursor-pointer ${
-                          isKey ? 'text-amber-400' : 'text-zinc-700 hover:text-zinc-400'
-                        }`}
-                      >
-                        <Key size={12} />
-                      </button>
-                      <button
-                        onClick={() => handleFieldClickA(col.name)}
-                        className={`flex-1 text-left px-3 py-1.5 rounded-lg text-sm font-mono transition-all cursor-pointer border ${
-                          isPending
-                            ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                            : mapped
-                            ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
-                            : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-600'
-                        }`}
-                      >
-                        <span>{col.name}</span>
-                        <span className="text-zinc-600 text-xs ml-2">{col.type}</span>
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Connection lines */}
-            <div className="flex flex-col items-center justify-start pt-7 px-3 min-w-[60px]">
-              {mappings.map((m, i) => {
-                const idxA = schemaA.findIndex(c => c.name === m.fieldA);
-                const idxB = schemaB.findIndex(c => c.name === m.fieldB);
-                if (idxA < 0 || idxB < 0) return null;
-                return (
-                  <div
-                    key={i}
-                    className="text-emerald-500/50"
-                    style={{ position: 'absolute' }}
-                  >
-                    <Link2 size={12} />
-                  </div>
-                );
-              })}
-              {mappings.length > 0 && (
-                <div className="flex flex-col items-center gap-1 text-emerald-500/60">
-                  {mappings.map((_, i) => (
-                    <Link2 key={i} size={14} />
-                  ))}
-                </div>
-              )}
-              {pendingA && (
-                <div className="text-blue-400 mt-2">
-                  <ArrowRight size={16} />
-                </div>
-              )}
-            </div>
-
-            {/* Column B */}
-            <div>
-              <div className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-2 px-1">
-                {srcB} / {tableB}
-              </div>
-              <div className="space-y-1">
-                {schemaB.map(col => {
-                  const mapped = isMappedB(col.name);
-                  const mappedFrom = getMappedA(col.name);
-                  return (
-                    <button
-                      key={col.name}
-                      onClick={() => handleFieldClickB(col.name)}
-                      className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-mono transition-all cursor-pointer border ${
-                        pendingA && !mapped
-                          ? 'border-blue-500/30 bg-zinc-950 text-zinc-300 hover:border-blue-500 hover:bg-blue-500/5'
-                          : mapped
-                          ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
-                          : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-600'
-                      }`}
-                    >
-                      <span>{col.name}</span>
-                      <span className="text-zinc-600 text-xs ml-2">{col.type}</span>
-                      {mappedFrom && mappedFrom !== col.name && (
-                        <span className="text-zinc-600 text-xs ml-2">← {mappedFrom}</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
+          <MappingColumns
+            schemaA={schemaA}
+            schemaB={schemaB}
+            mappings={mappings}
+            keyFields={keyFields}
+            pendingA={pendingA}
+            srcA={srcA}
+            srcB={srcB}
+            tableA={tableA}
+            tableB={tableB}
+            onFieldClickA={handleFieldClickA}
+            onFieldClickB={handleFieldClickB}
+            onToggleKey={toggleKeyField}
+            isMappedA={isMappedA}
+            isMappedB={isMappedB}
+            getMappedA={getMappedA}
+          />
 
           {/* Mapping summary */}
           {(mappings.length > 0 || keyFields.length > 0) && (
@@ -449,6 +362,177 @@ export function AddCheckWizard({ sources, onAdded, onCancel }: {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function MappingColumns({ schemaA, schemaB, mappings, keyFields, pendingA, srcA, srcB, tableA, tableB,
+  onFieldClickA, onFieldClickB, onToggleKey, isMappedA, isMappedB, getMappedA }: {
+  schemaA: ColumnInfo[]; schemaB: ColumnInfo[]; mappings: FieldPair[];
+  keyFields: string[]; pendingA: string | null;
+  srcA: string; srcB: string; tableA: string; tableB: string;
+  onFieldClickA: (f: string) => void; onFieldClickB: (f: string) => void;
+  onToggleKey: (f: string) => void;
+  isMappedA: (f: string) => boolean; isMappedB: (f: string) => boolean;
+  getMappedA: (f: string) => string | undefined;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const refsA = useRef<Record<string, HTMLElement | null>>({});
+  const refsB = useRef<Record<string, HTMLElement | null>>({});
+  const [lines, setLines] = useState<{ x1: number; y1: number; x2: number; y2: number; key: boolean }[]>([]);
+  const [svgSize, setSvgSize] = useState({ w: 0, h: 0 });
+
+  const updateLines = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    setSvgSize({ w: rect.width, h: rect.height });
+
+    const newLines: typeof lines = [];
+    for (const m of mappings) {
+      const elA = refsA.current[m.fieldA];
+      const elB = refsB.current[m.fieldB];
+      if (!elA || !elB) continue;
+      const rA = elA.getBoundingClientRect();
+      const rB = elB.getBoundingClientRect();
+      newLines.push({
+        x1: rA.right - rect.left,
+        y1: rA.top + rA.height / 2 - rect.top,
+        x2: rB.left - rect.left,
+        y2: rB.top + rB.height / 2 - rect.top,
+        key: keyFields.includes(m.fieldA),
+      });
+    }
+    setLines(newLines);
+  }, [mappings, keyFields]);
+
+  useEffect(() => {
+    updateLines();
+    window.addEventListener('resize', updateLines);
+    return () => window.removeEventListener('resize', updateLines);
+  }, [updateLines]);
+
+  // Re-calc after render when schemas change
+  useEffect(() => {
+    const t = setTimeout(updateLines, 50);
+    return () => clearTimeout(t);
+  }, [schemaA, schemaB, updateLines]);
+
+  return (
+    <div ref={containerRef} className="relative grid grid-cols-[1fr_80px_1fr] gap-0 items-start">
+      {/* SVG overlay for lines */}
+      <svg
+        className="absolute inset-0 pointer-events-none z-10"
+        width={svgSize.w}
+        height={svgSize.h}
+        style={{ overflow: 'visible' }}
+      >
+        {lines.map((l, i) => {
+          const dx = l.x2 - l.x1;
+          const cp = dx * 0.5;
+          return (
+            <path
+              key={i}
+              d={`M${l.x1},${l.y1} C${l.x1 + cp},${l.y1} ${l.x2 - cp},${l.y2} ${l.x2},${l.y2}`}
+              fill="none"
+              stroke={l.key ? '#f59e0b' : '#10b981'}
+              strokeWidth={2}
+              strokeOpacity={0.5}
+            />
+          );
+        })}
+        {pendingA && (() => {
+          const elA = refsA.current[pendingA];
+          if (!elA || !containerRef.current) return null;
+          const rect = containerRef.current.getBoundingClientRect();
+          const rA = elA.getBoundingClientRect();
+          const x = rA.right - rect.left;
+          const y = rA.top + rA.height / 2 - rect.top;
+          return (
+            <line
+              x1={x} y1={y} x2={x + 40} y2={y}
+              stroke="#3b82f6" strokeWidth={2} strokeDasharray="4 3" strokeOpacity={0.7}
+            />
+          );
+        })()}
+      </svg>
+
+      {/* Column A */}
+      <div>
+        <div className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-2 px-1">
+          {srcA} / {tableA}
+        </div>
+        <div className="space-y-1">
+          {schemaA.map(col => {
+            const mapped = isMappedA(col.name);
+            const isPending = pendingA === col.name;
+            const isKey = keyFields.includes(col.name);
+            return (
+              <div key={col.name} className="flex items-center gap-1">
+                <button
+                  onClick={() => onToggleKey(col.name)}
+                  title={isKey ? 'Убрать из ключа' : 'Сделать ключом'}
+                  className={`p-1 rounded transition-colors cursor-pointer ${
+                    isKey ? 'text-amber-400' : 'text-zinc-700 hover:text-zinc-400'
+                  }`}
+                >
+                  <Key size={12} />
+                </button>
+                <button
+                  ref={el => { refsA.current[col.name] = el; }}
+                  onClick={() => onFieldClickA(col.name)}
+                  className={`flex-1 text-left px-3 py-1.5 rounded-lg text-sm font-mono transition-all cursor-pointer border ${
+                    isPending
+                      ? 'border-blue-500 bg-blue-500/10 text-blue-400'
+                      : mapped
+                      ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
+                      : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-600'
+                  }`}
+                >
+                  <span>{col.name}</span>
+                  <span className="text-zinc-600 text-xs ml-2">{col.type}</span>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Spacer for SVG lines */}
+      <div />
+
+      {/* Column B */}
+      <div>
+        <div className="text-[10px] uppercase font-bold text-zinc-500 tracking-widest mb-2 px-1">
+          {srcB} / {tableB}
+        </div>
+        <div className="space-y-1">
+          {schemaB.map(col => {
+            const mapped = isMappedB(col.name);
+            const mappedFrom = getMappedA(col.name);
+            return (
+              <button
+                key={col.name}
+                ref={el => { refsB.current[col.name] = el; }}
+                onClick={() => onFieldClickB(col.name)}
+                className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-mono transition-all cursor-pointer border ${
+                  pendingA && !mapped
+                    ? 'border-blue-500/30 bg-zinc-950 text-zinc-300 hover:border-blue-500 hover:bg-blue-500/5'
+                    : mapped
+                    ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
+                    : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-600'
+                }`}
+              >
+                <span>{col.name}</span>
+                <span className="text-zinc-600 text-xs ml-2">{col.type}</span>
+                {mappedFrom && mappedFrom !== col.name && (
+                  <span className="text-zinc-600 text-xs ml-2">← {mappedFrom}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
