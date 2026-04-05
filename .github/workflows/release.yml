@@ -46,18 +46,11 @@ jobs:
           EXT=""; if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
           OUT="reconciler-${VERSION}-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
           go build -ldflags "-s -w -X main.version=${VERSION}" -o "${OUT}" ./cmd/server
-          mkdir -p bin/${{ matrix.goos }}
-          cp "${OUT}" "bin/${{ matrix.goos }}/reconciler${EXT}"
 
       - uses: actions/upload-artifact@v4
         with:
           name: backend-${{ matrix.goos }}-${{ matrix.goarch }}
           path: reconciler-*
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: electron-backend-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: bin/
 
   # ============================================
   # Frontend: platform-independent web build
@@ -84,30 +77,19 @@ jobs:
           name: frontend-release
           path: frontend-*.tar.gz
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: electron-frontend
-          path: web/dist/
-
   # ============================================
-  # Desktop: Electron shell per-platform
+  # Desktop: thin Electron shell (no bundled backend/frontend)
+  # Downloads components from GitHub Releases at runtime
   # ============================================
   desktop:
-    needs: [backend, frontend]
     strategy:
       matrix:
         include:
           - runner: ubuntu-latest
-            goos: linux
-            goarch: amd64
             electron_args: "--linux"
           - runner: macos-latest
-            goos: darwin
-            goarch: arm64
             electron_args: "--mac --arm64"
           - runner: windows-latest
-            goos: windows
-            goarch: amd64
             electron_args: "--win"
 
     runs-on: ${{ matrix.runner }}
@@ -117,20 +99,6 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '24' }
 
-      - uses: actions/download-artifact@v4
-        with:
-          name: electron-backend-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: bin/
-
-      - name: Make binary executable
-        if: matrix.goos != 'windows'
-        run: chmod +x bin/${{ matrix.goos }}/reconciler
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: electron-frontend
-          path: web/dist/
-
       - name: Build Electron
         working-directory: desktop
         shell: bash
@@ -138,11 +106,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           npm version $(grep '^desktop=' ../VERSION | cut -d= -f2) --no-git-tag-version --allow-same-version
-          npm ci
+          npm install
           npx electron-builder ${{ matrix.electron_args }} --publish always
 
   # ============================================
-  # Publish standalone artifacts to release
+  # Publish standalone backend + frontend to release
   # ============================================
   publish:
     needs: [backend, frontend]

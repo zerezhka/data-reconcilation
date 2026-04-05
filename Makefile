@@ -38,16 +38,14 @@ dev:
 frontend:
 	cd web && npm ci && npm run build
 
-# Desktop (dev)
+# Desktop (dev — uses local backend + frontend)
 desktop: build frontend
-	cd desktop && npm ci && npm start
+	cd desktop && npm install && npm start
 
-# Desktop (dist)
-desktop-dist: frontend
-	mkdir -p bin/$(GOOS)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags "-s -w -X main.version=$(BACKEND_VERSION)" -o bin/$(GOOS)/reconciler ./cmd/server
+# Desktop (dist — thin shell, downloads components at runtime)
+desktop-dist:
 	cd desktop && npm version $(DESKTOP_VERSION) --no-git-tag-version --allow-same-version
-	cd desktop && npm ci && npx electron-builder
+	cd desktop && npm install && npx electron-builder
 
 # Version info
 version:

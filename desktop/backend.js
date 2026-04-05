@@ -6,34 +6,34 @@ const { app } = require('electron');
 
 let backendProcess = null;
 
-function getBinaryName() {
+function getBackendBinaryName() {
   return process.platform === 'win32' ? 'reconciler.exe' : 'reconciler';
 }
 
-function getBinaryPath() {
-  const name = getBinaryName();
+function findBinaryPath() {
+  const name = getBackendBinaryName();
 
-  // Packaged: resources/backend/reconciler
-  const packaged = path.join(process.resourcesPath, 'backend', name);
-  if (fs.existsSync(packaged)) return packaged;
+  // 1. Downloaded by downloader (userData/backend/)
+  const downloaded = path.join(app.getPath('userData'), 'backend', name);
+  if (fs.existsSync(downloaded)) return downloaded;
 
-  // Dev: ../bin/reconciler
+  // 2. Dev mode (../bin/)
   const dev = path.join(__dirname, '..', 'bin', name);
   if (fs.existsSync(dev)) return dev;
 
-  throw new Error(`Backend binary not found. Checked:\n  ${packaged}\n  ${dev}`);
+  throw new Error(`Backend binary not found. Checked:\n  ${downloaded}\n  ${dev}`);
 }
 
-function getFrontendPath() {
-  // Packaged: resources/frontend/
-  const packaged = path.join(process.resourcesPath, 'frontend');
-  if (fs.existsSync(path.join(packaged, 'index.html'))) return packaged;
+function findFrontendPath() {
+  // 1. Downloaded by downloader
+  const downloaded = path.join(app.getPath('userData'), 'frontend');
+  if (fs.existsSync(path.join(downloaded, 'index.html'))) return downloaded;
 
-  // Dev: ../web/dist/
+  // 2. Dev mode
   const dev = path.join(__dirname, '..', 'web', 'dist');
   if (fs.existsSync(path.join(dev, 'index.html'))) return dev;
 
-  return null; // Backend-only mode, no frontend served
+  return null;
 }
 
 function getFreePort() {
@@ -47,7 +47,7 @@ function getFreePort() {
   });
 }
 
-function waitForPort(port, timeout = 10000) {
+function waitForPort(port, timeout = 15000) {
   const start = Date.now();
   return new Promise((resolve, reject) => {
     function tryConnect() {
@@ -66,9 +66,9 @@ function waitForPort(port, timeout = 10000) {
 
 async function startBackend() {
   const port = await getFreePort();
-  const binPath = getBinaryPath();
+  const binPath = findBinaryPath();
   const cwd = app.getPath('userData');
-  const frontendPath = getFrontendPath();
+  const frontendPath = findFrontendPath();
 
   const args = ['-port', String(port)];
   if (frontendPath) args.push('-static', frontendPath);
