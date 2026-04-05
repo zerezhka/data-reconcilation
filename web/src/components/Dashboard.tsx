@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Play, RefreshCw, ChevronRight, Database } from 'lucide-react';
+import { Play, RefreshCw, ChevronDown, ChevronUp, Database } from 'lucide-react';
 import { useSSE } from '../api/useEvents';
 import { CheckResultDetail } from './CheckResultDetail';
 import * as api from '../api/client';
 import type { CheckResult, DSInfo } from '../types';
+import { formatValue, formatDelta } from '../utils/format';
 
 export function Dashboard() {
   const [isRunning, setIsRunning] = useState(false);
@@ -11,6 +12,7 @@ export function Dashboard() {
   const [sources, setSources] = useState<DSInfo[]>([]);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<CheckResult | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   // Load last results + datasources on mount
@@ -141,29 +143,85 @@ export function Dashboard() {
             <div className="divide-y divide-zinc-800">
               {results.map((r, i) => {
                 const issues = (r.summary?.mismatched_rows ?? 0) + (r.summary?.missing_in_a ?? 0) + (r.summary?.missing_in_b ?? 0) + (r.summary?.duplicates_in_a ?? 0) + (r.summary?.duplicates_in_b ?? 0);
+                const isExpanded = expanded === r.check_id;
                 return (
-                  <button
-                    key={i}
-                    onClick={() => setSelected(r)}
-                    className="w-full p-4 flex items-center justify-between hover:bg-zinc-800/30 transition-colors cursor-pointer text-left"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className={`w-2 h-2 rounded-full ${r.status === 'ok' ? 'bg-emerald-500' : r.status === 'warning' ? 'bg-amber-500' : 'bg-red-500'}`} />
-                      <span className="font-medium">{r.check_name || r.check_id}</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      {issues > 0 && (
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-500/10 text-red-500 border border-red-500/20">
-                          {issues} {issues === 1 ? 'issue' : 'issues'}
+                  <div key={i}>
+                    <div className="p-4 flex items-center justify-between hover:bg-zinc-800/30 transition-colors">
+                      <button
+                        onClick={() => setSelected(r)}
+                        className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer hover:opacity-80 transition-opacity text-left"
+                      >
+                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${r.status === 'ok' ? 'bg-emerald-500' : r.status === 'warning' ? 'bg-amber-500' : 'bg-red-500'}`} />
+                        <span className="font-medium truncate">{r.check_name || r.check_id}</span>
+                      </button>
+                      <div className="flex items-center gap-2 ml-4">
+                        {issues > 0 && (
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-500/10 text-red-500 border border-red-500/20">
+                            {issues}
+                          </span>
+                        )}
+                        <span className="text-zinc-500 text-sm font-mono">{r.duration}</span>
+                        <span className={`text-xs font-bold ${r.status === 'ok' ? 'text-emerald-500' : 'text-red-500'}`}>
+                          {r.status.toUpperCase()}
                         </span>
-                      )}
-                      <span className="text-zinc-500 text-sm font-mono">{r.duration}</span>
-                      <span className={`text-xs font-bold ${r.status === 'ok' ? 'text-emerald-500' : 'text-red-500'}`}>
-                        {r.status.toUpperCase()}
-                      </span>
-                      <ChevronRight size={16} className="text-zinc-600" />
+                        <button
+                          onClick={() => setExpanded(isExpanded ? null : r.check_id)}
+                          className="p-1 hover:bg-zinc-700 rounded transition-colors cursor-pointer"
+                        >
+                          {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                        </button>
+                      </div>
                     </div>
-                  </button>
+                    {isExpanded && r.summary && (
+                      <div className="px-4 pb-4 border-t border-zinc-800/50">
+                        <div className="grid grid-cols-4 gap-4 mt-3 text-sm">
+                          <div><span className="text-zinc-500">Строк A:</span> {r.summary.source_a_rows}</div>
+                          <div><span className="text-zinc-500">Строк B:</span> {r.summary.source_b_rows}</div>
+                          <div><span className="text-zinc-500">Совпало:</span> <span className="text-emerald-500">{r.summary.matched_rows}</span></div>
+                          <div><span className="text-zinc-500">Расхождения:</span> <span className="text-red-500">{r.summary.mismatched_rows}</span></div>
+                        </div>
+                        {r.details && r.details.length > 0 && (
+                          <div className="overflow-x-auto mt-3">
+                            <table className="w-full text-sm">
+                              <thead>
+                                <tr className="text-zinc-500 text-xs border-b border-zinc-800">
+                                  <th className="text-left py-2 pr-4">Тип</th>
+                                  <th className="text-left py-2 pr-4">Ключ</th>
+                                  <th className="text-left py-2 pr-4">Поле</th>
+                                  <th className="text-left py-2 pr-4">A</th>
+                                  <th className="text-left py-2 pr-4">B</th>
+                                  <th className="text-left py-2">Delta</th>
+                                </tr>
+                              </thead>
+                              <tbody className="font-mono text-xs">
+                                {r.details.slice(0, 20).map((d, j) => (
+                                  <tr key={j} className="border-b border-zinc-800/50">
+                                    <td className="py-1.5 pr-4">
+                                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                        d.type === 'missing' ? 'bg-amber-500/10 text-amber-500' :
+                                        d.type === 'duplicate' ? 'bg-purple-500/10 text-purple-500' :
+                                        'bg-red-500/10 text-red-500'
+                                      }`}>{d.type}</span>
+                                    </td>
+                                    <td className="py-1.5 pr-4 text-zinc-400">{JSON.stringify(d.key_values)}</td>
+                                    <td className="py-1.5 pr-4">{d.field}</td>
+                                    <td className="py-1.5 pr-4">{formatValue(d.value_a)}</td>
+                                    <td className="py-1.5 pr-4">{formatValue(d.value_b)}</td>
+                                    <td className="py-1.5 text-amber-400">{formatDelta(d.delta)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                            {r.details.length > 20 && (
+                              <button onClick={() => setSelected(r)} className="text-blue-400 text-xs mt-2 hover:underline cursor-pointer">
+                                ...ещё {r.details.length - 20} — показать все
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>

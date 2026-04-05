@@ -56,6 +56,12 @@ export const addCheck = (check: CheckConfig) =>
     body: JSON.stringify(check),
   });
 
+export const updateCheck = (id: string, check: CheckConfig) =>
+  request<{ status: string; id: string }>(`/checks/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(check),
+  });
+
 export const removeCheck = (id: string) =>
   request<{ status: string }>(`/checks/${id}`, {
     method: 'DELETE',

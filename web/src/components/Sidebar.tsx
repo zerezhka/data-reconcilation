@@ -30,12 +30,15 @@ export function Sidebar({ activeTab, onTabChange }: {
 }) {
   return (
     <aside className="w-64 bg-zinc-950 border-r border-zinc-800 flex flex-col p-4 shrink-0">
-      <div className="flex items-center gap-3 px-2 mb-10 mt-2">
+      <button
+        onClick={() => onTabChange('dashboard')}
+        className="flex items-center gap-3 px-2 mb-10 mt-2 cursor-pointer hover:opacity-80 transition-opacity"
+      >
         <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
           <RefreshCw size={18} className="text-white" />
         </div>
         <h1 className="font-bold tracking-tight text-lg italic">RECONCILER</h1>
-      </div>
+      </button>
 
       <nav className="flex-1 space-y-1">
         <SidebarItem icon={LayoutDashboard} label="Дашборд" active={activeTab === 'dashboard'} onClick={() => onTabChange('dashboard')} />

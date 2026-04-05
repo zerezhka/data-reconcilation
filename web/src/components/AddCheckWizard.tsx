@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowRight, ArrowLeft, Zap, Link2, Key, Check } from 'lucide-react';
 import * as api from '../api/client';
-import type { DSInfo, TableInfo, ColumnInfo, CheckMode } from '../types';
+import type { DSInfo, TableInfo, ColumnInfo, CheckMode, CheckConfig } from '../types';
 
 type Step = 'sources' | 'fields' | 'review';
 
@@ -10,32 +10,49 @@ interface FieldPair {
   fieldB: string;
 }
 
-export function AddCheckWizard({ sources, onAdded, onCancel }: {
+export function AddCheckWizard({ sources, onAdded, onCancel, editCheck }: {
   sources: DSInfo[];
   onAdded: () => void;
   onCancel: () => void;
+  editCheck?: CheckConfig;
 }) {
-  const [step, setStep] = useState<Step>('sources');
+  const isEdit = !!editCheck;
+  const [step, setStep] = useState<Step>(editCheck ? 'review' : 'sources');
 
   // Step 1: sources & tables
-  const [srcA, setSrcA] = useState('');
-  const [srcB, setSrcB] = useState('');
+  const [srcA, setSrcA] = useState(editCheck?.source_a.datasource ?? '');
+  const [srcB, setSrcB] = useState(editCheck?.source_b.datasource ?? '');
   const [tablesA, setTablesA] = useState<TableInfo[]>([]);
   const [tablesB, setTablesB] = useState<TableInfo[]>([]);
-  const [tableA, setTableA] = useState('');
-  const [tableB, setTableB] = useState('');
+  const [tableA, setTableA] = useState(editCheck?.source_a.table ?? '');
+  const [tableB, setTableB] = useState(editCheck?.source_b.table ?? '');
 
   // Step 2: fields & mapping
   const [schemaA, setSchemaA] = useState<ColumnInfo[]>([]);
   const [schemaB, setSchemaB] = useState<ColumnInfo[]>([]);
-  const [mappings, setMappings] = useState<FieldPair[]>([]);
-  const [keyFields, setKeyFields] = useState<string[]>([]);
+  const [mappings, setMappings] = useState<FieldPair[]>(() => {
+    if (!editCheck) return [];
+    // Reconstruct mappings from check config
+    const pairs: FieldPair[] = [];
+    const fieldMap = editCheck.field_map || {};
+    // Key fields
+    for (const k of editCheck.key_fields || []) {
+      pairs.push({ fieldA: k, fieldB: fieldMap[k] || k });
+    }
+    // Compare fields
+    for (const f of editCheck.source_a.fields || []) {
+      pairs.push({ fieldA: f, fieldB: fieldMap[f] || f });
+    }
+    return pairs;
+  });
+  const [keyFields, setKeyFields] = useState<string[]>(editCheck?.key_fields ?? []);
   const [pendingA, setPendingA] = useState<string | null>(null);
+  const [pendingB, setPendingB] = useState<string | null>(null);
 
   // Step 3: review
-  const [name, setName] = useState('');
-  const [mode, setMode] = useState<CheckMode>('row_level');
-  const [tolerance, setTolerance] = useState('0');
+  const [name, setName] = useState(editCheck?.name ?? '');
+  const [mode, setMode] = useState<CheckMode>(editCheck?.mode ?? 'row_level');
+  const [tolerance, setTolerance] = useState(String(editCheck?.tolerance ?? '0'));
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -90,20 +107,39 @@ export function AddCheckWizard({ sources, onAdded, onCancel }: {
     if (existing >= 0) {
       setMappings(prev => prev.filter((_, i) => i !== existing));
       setPendingA(null);
+      setPendingB(null);
+      return;
+    }
+    // If B is pending, complete the mapping
+    if (pendingB) {
+      setMappings(prev => prev.filter(m => m.fieldA !== fieldName && m.fieldB !== pendingB));
+      setMappings(prev => [...prev, { fieldA: fieldName, fieldB: pendingB }]);
+      setPendingB(null);
+      setPendingA(null);
       return;
     }
     setPendingA(fieldName);
+    setPendingB(null);
   };
 
   const handleFieldClickB = (fieldName: string) => {
-    if (!pendingA) {
-      // If clicking B without pending A, remove existing mapping for this B
-      setMappings(prev => prev.filter(m => m.fieldB !== fieldName));
+    // If already mapped, remove the mapping
+    const existing = mappings.findIndex(m => m.fieldB === fieldName);
+    if (existing >= 0) {
+      setMappings(prev => prev.filter((_, i) => i !== existing));
+      setPendingA(null);
+      setPendingB(null);
       return;
     }
-    // Remove any existing mapping for either field
-    setMappings(prev => prev.filter(m => m.fieldA !== pendingA && m.fieldB !== fieldName));
-    setMappings(prev => [...prev, { fieldA: pendingA, fieldB: fieldName }]);
+    // If A is pending, complete the mapping
+    if (pendingA) {
+      setMappings(prev => prev.filter(m => m.fieldA !== pendingA && m.fieldB !== fieldName));
+      setMappings(prev => [...prev, { fieldA: pendingA, fieldB: fieldName }]);
+      setPendingA(null);
+      setPendingB(null);
+      return;
+    }
+    setPendingB(fieldName);
     setPendingA(null);
   };
 
@@ -120,24 +156,30 @@ export function AddCheckWizard({ sources, onAdded, onCancel }: {
   const handleSubmit = async () => {
     setSubmitting(true);
     setError('');
-    const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    const id = isEdit ? editCheck.id : name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     const fieldMap: Record<string, string> = {};
     mappings.forEach(m => { if (m.fieldA !== m.fieldB) fieldMap[m.fieldA] = m.fieldB; });
 
     const compareFields = mappings.filter(m => !keyFields.includes(m.fieldA)).map(m => m.fieldA);
     const compareFieldsB = mappings.filter(m => !keyFields.includes(m.fieldA)).map(m => m.fieldB);
 
+    const checkData = {
+      id,
+      name,
+      mode,
+      source_a: { datasource: srcA, table: tableA, fields: compareFields },
+      source_b: { datasource: srcB, table: tableB, fields: compareFieldsB },
+      key_fields: keyFields,
+      field_map: fieldMap,
+      tolerance: parseFloat(tolerance) || 0,
+    };
+
     try {
-      await api.addCheck({
-        id,
-        name,
-        mode,
-        source_a: { datasource: srcA, table: tableA, fields: compareFields },
-        source_b: { datasource: srcB, table: tableB, fields: compareFieldsB },
-        key_fields: keyFields,
-        field_map: fieldMap,
-        tolerance: parseFloat(tolerance) || 0,
-      });
+      if (isEdit) {
+        await api.updateCheck(id, checkData);
+      } else {
+        await api.addCheck(checkData);
+      }
       onAdded();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed');
@@ -239,6 +281,7 @@ export function AddCheckWizard({ sources, onAdded, onCancel }: {
             mappings={mappings}
             keyFields={keyFields}
             pendingA={pendingA}
+            pendingB={pendingB}
             srcA={srcA}
             srcB={srcB}
             tableA={tableA}
@@ -275,7 +318,7 @@ export function AddCheckWizard({ sources, onAdded, onCancel }: {
               <ArrowLeft size={16} /> Назад
             </button>
             <button
-              disabled={mappings.length === 0 || keyFields.length === 0}
+              disabled={mappings.length === 0}
               onClick={() => setStep('review')}
               className="flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg font-bold transition-all disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
             >
@@ -348,16 +391,22 @@ export function AddCheckWizard({ sources, onAdded, onCancel }: {
             </div>
           </div>
 
+          {mode === 'row_level' && keyFields.length === 0 && (
+            <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-400 text-sm">
+              Для построчной сверки нужен ключ. Вернитесь на шаг маппинга и отметьте ключевые поля (иконка ключа).
+            </div>
+          )}
+
           <div className="flex justify-between mt-6 pt-6 border-t border-zinc-800">
             <button onClick={() => setStep('fields')} className="flex items-center gap-2 px-4 py-2 text-zinc-400 hover:text-white transition-colors cursor-pointer">
               <ArrowLeft size={16} /> Назад
             </button>
             <button
-              disabled={submitting || !name}
+              disabled={submitting || !name || (mode === 'row_level' && keyFields.length === 0)}
               onClick={handleSubmit}
               className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-bold transition-all disabled:opacity-50 cursor-pointer"
             >
-              {submitting ? 'Создание...' : 'Создать проверку'}
+              {submitting ? (isEdit ? 'Сохранение...' : 'Создание...') : (isEdit ? 'Сохранить' : 'Создать проверку')}
             </button>
           </div>
         </div>
@@ -366,10 +415,10 @@ export function AddCheckWizard({ sources, onAdded, onCancel }: {
   );
 }
 
-function MappingColumns({ schemaA, schemaB, mappings, keyFields, pendingA, srcA, srcB, tableA, tableB,
+function MappingColumns({ schemaA, schemaB, mappings, keyFields, pendingA, pendingB, srcA, srcB, tableA, tableB,
   onFieldClickA, onFieldClickB, onToggleKey, isMappedA, isMappedB, getMappedA }: {
   schemaA: ColumnInfo[]; schemaB: ColumnInfo[]; mappings: FieldPair[];
-  keyFields: string[]; pendingA: string | null;
+  keyFields: string[]; pendingA: string | null; pendingB: string | null;
   srcA: string; srcB: string; tableA: string; tableB: string;
   onFieldClickA: (f: string) => void; onFieldClickB: (f: string) => void;
   onToggleKey: (f: string) => void;
@@ -455,6 +504,20 @@ function MappingColumns({ schemaA, schemaB, mappings, keyFields, pendingA, srcA,
             />
           );
         })()}
+        {pendingB && (() => {
+          const elB = refsB.current[pendingB];
+          if (!elB || !containerRef.current) return null;
+          const rect = containerRef.current.getBoundingClientRect();
+          const rB = elB.getBoundingClientRect();
+          const x = rB.left - rect.left;
+          const y = rB.top + rB.height / 2 - rect.top;
+          return (
+            <line
+              x1={x - 40} y1={y} x2={x} y2={y}
+              stroke="#3b82f6" strokeWidth={2} strokeDasharray="4 3" strokeOpacity={0.7}
+            />
+          );
+        })()}
       </svg>
 
       {/* Column A */}
@@ -486,6 +549,8 @@ function MappingColumns({ schemaA, schemaB, mappings, keyFields, pendingA, srcA,
                       ? 'border-blue-500 bg-blue-500/10 text-blue-400'
                       : mapped
                       ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
+                      : pendingB && !mapped
+                      ? 'border-blue-500/30 bg-zinc-950 text-zinc-300 hover:border-blue-500 hover:bg-blue-500/5'
                       : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-600'
                   }`}
                 >
@@ -509,6 +574,7 @@ function MappingColumns({ schemaA, schemaB, mappings, keyFields, pendingA, srcA,
         <div className="space-y-1">
           {schemaB.map(col => {
             const mapped = isMappedB(col.name);
+            const isPending = pendingB === col.name;
             const mappedFrom = getMappedA(col.name);
             return (
               <button
@@ -516,10 +582,12 @@ function MappingColumns({ schemaA, schemaB, mappings, keyFields, pendingA, srcA,
                 ref={el => { refsB.current[col.name] = el; }}
                 onClick={() => onFieldClickB(col.name)}
                 className={`w-full text-left px-3 py-1.5 rounded-lg text-sm font-mono transition-all cursor-pointer border ${
-                  pendingA && !mapped
-                    ? 'border-blue-500/30 bg-zinc-950 text-zinc-300 hover:border-blue-500 hover:bg-blue-500/5'
+                  isPending
+                    ? 'border-blue-500 bg-blue-500/10 text-blue-400'
                     : mapped
                     ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400'
+                    : (pendingA && !mapped)
+                    ? 'border-blue-500/30 bg-zinc-950 text-zinc-300 hover:border-blue-500 hover:bg-blue-500/5'
                     : 'border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-zinc-600'
                 }`}
               >

@@ -1,16 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Play, Trash2, ChevronDown, ChevronUp, PlayCircle } from 'lucide-react';
+import { Plus, Play, Trash2, ChevronDown, ChevronUp, PlayCircle, Pencil } from 'lucide-react';
 import { StatusBadge } from './StatusBadge';
 import { AddCheckWizard } from './AddCheckWizard';
 import * as api from '../api/client';
 import { useSSE } from '../api/useEvents';
 import type { CheckConfig, CheckResult, DSInfo } from '../types';
+import { formatValue, formatDelta } from '../utils/format';
 
 export function Checks() {
   const [checks, setChecks] = useState<CheckConfig[]>([]);
   const [sources, setSources] = useState<DSInfo[]>([]);
   const [results, setResults] = useState<Record<string, CheckResult>>({});
   const [showAdd, setShowAdd] = useState(false);
+  const [editingCheck, setEditingCheck] = useState<CheckConfig | undefined>(undefined);
   const [expandedResult, setExpandedResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -81,8 +83,9 @@ export function Checks() {
       {showAdd && (
         <AddCheckWizard
           sources={sources}
-          onAdded={() => { setShowAdd(false); load(); }}
-          onCancel={() => setShowAdd(false)}
+          editCheck={editingCheck}
+          onAdded={() => { setShowAdd(false); setEditingCheck(undefined); load(); }}
+          onCancel={() => { setShowAdd(false); setEditingCheck(undefined); }}
         />
       )}
 
@@ -118,6 +121,13 @@ export function Checks() {
                         {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </button>
                     )}
+                    <button
+                      onClick={() => { setEditingCheck(check); setShowAdd(true); }}
+                      className="bg-zinc-800 hover:bg-zinc-700 text-xs py-2 px-3 rounded-md transition-colors cursor-pointer"
+                      title="Редактировать"
+                    >
+                      <Pencil size={14} />
+                    </button>
                     <button
                       onClick={() => handleRun(check.id)}
                       className="flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 text-xs py-2 px-3 rounded-md font-bold transition-colors cursor-pointer"
@@ -166,9 +176,9 @@ export function Checks() {
                                 </td>
                                 <td className="py-2 pr-4 text-zinc-400">{JSON.stringify(d.key_values)}</td>
                                 <td className="py-2 pr-4">{d.field}</td>
-                                <td className="py-2 pr-4">{String(d.value_a ?? '')}</td>
-                                <td className="py-2 pr-4">{String(d.value_b ?? '')}</td>
-                                <td className="py-2 text-amber-400">{d.delta != null ? String(d.delta) : ''}</td>
+                                <td className="py-2 pr-4">{formatValue(d.value_a)}</td>
+                                <td className="py-2 pr-4">{formatValue(d.value_b)}</td>
+                                <td className="py-2 text-amber-400">{formatDelta(d.delta)}</td>
                               </tr>
                             ))}
                           </tbody>

@@ -116,6 +116,7 @@ func (h *Handler) Routes() chi.Router {
 	// Checks
 	r.Get("/checks", h.listChecks)
 	r.Post("/checks", h.addCheck)
+	r.Put("/checks/{id}", h.updateCheck)
 	r.Post("/checks/{id}/run", h.runCheck)
 	r.Post("/checks/run-all", h.runAllChecks)
 	r.Get("/checks/last-results", h.lastResults)
@@ -303,6 +304,34 @@ func (h *Handler) addCheck(w http.ResponseWriter, r *http.Request) {
 	h.saveChecks()
 	h.mu.Unlock()
 	writeJSON(w, map[string]string{"status": "added", "id": check.ID})
+}
+
+func (h *Handler) updateCheck(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var check models.CheckConfig
+	if err := json.NewDecoder(r.Body).Decode(&check); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	check.ID = id
+
+	h.mu.Lock()
+	found := false
+	for i, c := range h.checks {
+		if c.ID == id {
+			h.checks[i] = check
+			found = true
+			break
+		}
+	}
+	h.saveChecks()
+	h.mu.Unlock()
+
+	if !found {
+		writeError(w, http.StatusNotFound, "check not found: "+id)
+		return
+	}
+	writeJSON(w, map[string]string{"status": "updated", "id": id})
 }
 
 func (h *Handler) removeCheck(w http.ResponseWriter, r *http.Request) {

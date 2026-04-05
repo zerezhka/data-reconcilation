@@ -1,6 +1,7 @@
 import { ArrowLeft } from 'lucide-react';
 import { StatusBadge } from './StatusBadge';
 import type { CheckResult } from '../types';
+import { formatValue, formatDelta } from '../utils/format';
 
 export function CheckResultDetail({ result, onBack }: { result: CheckResult; onBack: () => void }) {
   const s = result.summary;
@@ -141,7 +142,7 @@ function DiscrepancyTable({ rows }: { rows: CheckResult['details'] }) {
                 <td className="py-2.5 px-4 text-zinc-200">{d.field}</td>
                 <td className="py-2.5 px-4">{formatValue(d.value_a)}</td>
                 <td className="py-2.5 px-4">{formatValue(d.value_b)}</td>
-                <td className="py-2.5 px-4 text-amber-400">{d.delta != null ? String(d.delta) : ''}</td>
+                <td className="py-2.5 px-4 text-amber-400">{formatDelta(d.delta)}</td>
               </tr>
             ))}
           </tbody>
@@ -151,8 +152,4 @@ function DiscrepancyTable({ rows }: { rows: CheckResult['details'] }) {
   );
 }
 
-function formatValue(v: unknown): string {
-  if (v === null || v === undefined) return '—';
-  if (v === '') return '(empty)';
-  return String(v);
-}
+
