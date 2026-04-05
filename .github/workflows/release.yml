@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   # ============================================
-  # Backend: Go binary per platform (CGO needed for sqlite)
+  # Backend: Go binary per platform
   # ============================================
   backend:
     strategy:
@@ -18,7 +18,7 @@ jobs:
           - runner: ubuntu-latest
             goos: linux
             goarch: amd64
-          - runner: macos-13
+          - runner: macos-latest
             goos: darwin
             goarch: amd64
           - runner: macos-latest
@@ -101,10 +101,6 @@ jobs:
             goos: linux
             goarch: amd64
             electron_args: "--linux"
-          - runner: macos-13
-            goos: darwin
-            goarch: amd64
-            electron_args: "--mac --x64"
           - runner: macos-latest
             goos: darwin
             goarch: arm64
