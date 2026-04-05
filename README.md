@@ -2,6 +2,14 @@
 
 Инструмент сверки данных между произвольными источниками. Подключил два датасорса, настроил маппинг, получил расхождения — без AI, чисто алгоритмически.
 
+![Dashboard](docs/img/dashboard.png)
+
+![Datasources](docs/img/datasources.png)
+
+![Checks](docs/img/checks.png)
+
+![Checks Expanded](docs/img/checks-expanded.png)
+
 ---
 
 ## Зачем
